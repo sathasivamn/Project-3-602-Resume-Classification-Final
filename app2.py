@@ -147,27 +147,27 @@ if uploaded_files:
                     "top_confidence": str(e)
                 })
 
-        st.subheader("Prediction Results")
-        # Streamlit can render list of dicts directly
-        st.dataframe(results, use_container_width=True)
+       st.subheader("Prediction Results")
 
-        # Optional: show snippet from first valid file
-        first_ok = next((r for r in results if "ERROR" not in r["predicted_label"]), None)
-        if first_ok:
-            st.markdown("---")
-            st.subheader("Sample Extracted Text (from first valid file)")
-            first_file = next(f for f in uploaded_files if f.name == first_ok["filename"])
-            # Re-extract because uploaded_file.read() was consumed earlier
-            first_file_bytes = first_file.getvalue()
-            snippet = ""
-            if first_file.name.lower().endswith(".pdf"):
-                snippet = read_pdf_file(first_file_bytes)[:1000]
-            elif first_file.name.lower().endswith(".docx"):
-                snippet = read_docx_file(first_file_bytes)[:1000]
-            elif first_file.name.lower().endswith(".txt"):
-                snippet = read_txt_file(first_file_bytes)[:1000]
-            elif first_file.name.lower().endswith(".doc"):
-                snippet = read_doc_file(first_file_bytes)[:1000]
-            st.text(snippet)
-else:
-    st.info("Please upload at least one file to get predictions.")
+# Build a simple HTML table instead of st.dataframe (to avoid pandas)
+table_html = """
+<table style="border-collapse: collapse; width: 100%;">
+    <tr>
+        <th style="border: 1px solid #ccc; padding: 4px;">Filename</th>
+        <th style="border: 1px solid #ccc; padding: 4px;">Predicted Label</th>
+        <th style="border: 1px solid #ccc; padding: 4px;">Top Confidence</th>
+    </tr>
+"""
+
+for r in results:
+    table_html += f"""
+    <tr>
+        <td style="border: 1px solid #ccc; padding: 4px;">{r['filename']}</td>
+        <td style="border: 1px solid #ccc; padding: 4px;">{r['predicted_label']}</td>
+        <td style="border: 1px solid #ccc; padding: 4px;">{r['top_confidence']}</td>
+    </tr>
+    """
+
+table_html += "</table>"
+
+st.markdown(table_html, unsafe_allow_html=True)
