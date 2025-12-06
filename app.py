@@ -9,6 +9,12 @@ import PyPDF2
 import nltk
 from nltk.corpus import stopwords
 
+# Optional: support for .doc using textract
+try:
+    import textract
+except ImportError:
+    textract = None
+
 # Ensure NLTK stopwords are available
 try:
     stop_words = set(stopwords.words('english'))
@@ -59,7 +65,21 @@ def read_pdf_file(file_bytes):
 def read_txt_file(file_bytes):
     return file_bytes.decode("utf-8", errors="ignore")
 
+def read_doc_file(file_bytes):
+    """
+    Optional reader for .doc using textract.
+    Make sure 'textract' is in requirements.txt if you use this.
+    """
+    if textract is None:
+        # Graceful error if textract is not installed
+        raise ValueError("DOC support requires 'textract'. Please install textract or convert DOC to DOCX.")
+    text = textract.process(io.BytesIO(file_bytes))
+    return text.decode("utf-8", errors="ignore")
+
 def extract_text_from_upload(uploaded_file):
+    """
+    Extract text from a single uploaded file object.
+    """
     if uploaded_file is None:
         return ""
 
@@ -72,8 +92,10 @@ def extract_text_from_upload(uploaded_file):
         return read_pdf_file(file_bytes)
     elif name.endswith(".txt"):
         return read_txt_file(file_bytes)
+    elif name.endswith(".doc"):
+        return read_doc_file(file_bytes)
     else:
-        raise ValueError("Unsupported file type. Please upload .pdf, .docx, or .txt")
+        raise ValueError("Unsupported file type. Please upload .pdf, .docx, .doc, or .txt")
 
 # ---------------------------
 # Load model
@@ -92,31 +114,39 @@ model = load_model()
 
 st.title("📄 Resume Classification App")
 st.write(
-    "Upload a resume (.pdf / .docx / .txt) and the model will predict the job category."
+    "Upload one or more resumes (.pdf / .docx / .doc / .txt) and the model will predict the job category."
 )
 
-uploaded_file = st.file_uploader(
-    "Upload your resume file",
-    type=["pdf", "docx", "txt"]
+uploaded_files = st.file_uploader(
+    "Upload your resume file(s)",
+    type=["pdf", "docx", "doc", "txt"],
+    accept_multiple_files=True
 )
 
-if uploaded_file is not None:
-    st.write("**File uploaded:**", uploaded_file.name)
+if uploaded_files:
+    st.write(f"**Number of files uploaded:** {len(uploaded_files)}")
 
-    if st.button("Predict Category"):
-        try:
-            raw_text = extract_text_from_upload(uploaded_file)
+    if st.button("Predict Category for All Files"):
+        results = []
+        for uploaded_file in uploaded_files:
+            file_name = uploaded_file.name
+            try:
+                # Important: read per file inside loop
+                raw_text = extract_text_from_upload(uploaded_file)
 
-            if not raw_text.strip():
-                st.error("Could not extract any text from the file.")
-            else:
-                st.subheader("Extracted Text (first 1000 chars)")
-                st.text(raw_text[:1000])
+                if not raw_text.strip():
+                    results.append({
+                        "filename": file_name,
+                        "predicted_label": "ERROR: No text extracted",
+                        "details": "Empty or unreadable file"
+                    })
+                    continue
 
                 processed_text = preprocess_text(raw_text)
                 pred_label = model.predict([processed_text])[0]
-                st.subheader("Predicted Category")
-                st.success(pred_label)
+
+                # Default: no probability
+                prob_str = "N/A"
 
                 # Show probabilities if available
                 clf = model.named_steps.get('clf', None)
@@ -125,10 +155,27 @@ if uploaded_file is not None:
                         model.named_steps['tfidf'].transform([processed_text])
                     )[0]
                     classes = clf.classes_
+                    # pick max confidence and label
+                    max_idx = probs.argmax()
+                    prob_str = f"{classes[max_idx]}: {probs[max_idx]:.3f}"
 
-                    st.subheader("Prediction Probabilities")
-                    prob_table = {cls: float(p) for cls, p in zip(classes, probs)}
-                    st.write(prob_table)
+                results.append({
+                    "filename": file_name,
+                    "predicted_label": str(pred_label),
+                    "top_confidence": prob_str
+                })
 
-        except Exception as e:
-            st.error(f"Error processing file: {e}")
+            except Exception as e:
+                results.append({
+                    "filename": file_name,
+                    "predicted_label": "ERROR",
+                    "top_confidence": str(e)
+                })
+
+        st.subheader("Prediction Results")
+        import pandas as pd
+        res_df = pd.DataFrame(results)
+        st.dataframe(res_df)
+
+        # Optionally show details for first file
+        st.write("You can scroll the table above to see all predictions.")
