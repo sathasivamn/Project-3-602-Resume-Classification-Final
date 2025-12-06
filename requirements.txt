@@ -5,3 +5,4 @@ python-docx
 PyPDF2
 nltk
 textract 
+pandas==2.2.3
